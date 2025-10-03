@@ -2,6 +2,10 @@ import asyncio
 import logging
 import sys
 from datetime import datetime
+from kmd_nexus_client.tree_helpers import (
+    filter_by_predicate,    
+)
+
 
 from odk_tools.tracking import Tracker
 
@@ -27,7 +31,7 @@ async def populate_queue(workqueue: Workqueue):
     xlow_søge_query = {
         "text": "",
         "processTemplateIds": [
-            "742"
+            "743"
         ],
         "startIndex": 0,        
         "createdDateFrom": "01-01-1980",
@@ -36,15 +40,55 @@ async def populate_queue(workqueue: Workqueue):
 
     igangværende_processer = xflow_process_client.search_processes_by_current_activity(
         query=xlow_søge_query,
-        activity_name="Start"
+        activity_name="RPAIntegration",
     )
     print("hej")
 
     for proces in igangværende_processer:
-        print(proces)
 
-        ønsket_hjælpemiddel = str(xflow_process_client.find_process_element_value(proces, "test", "test2"))
+        blanketter = proces["blanketter"]
 
+        samlet_ansøgning = filter_by_predicate(
+            roots=blanketter,
+            predicate=lambda x: x["blanketnavn"] == "Christian tester"
+        )
+        filtreret_ansøgning = xflow_client.traverse_json_for_referable_elements(samlet_ansøgning[0])
+        hjælpemiddel_predicate = filter_by_predicate(
+            roots=filtreret_ansøgning,
+            predicate=lambda x: x["identifier"] == "ElementMultiSelectHjælpemiddel"
+        )
+        # find værdier hjælpemiddel_predicate[0]["values"]["MultiSelectTekst"] og tilføj dem til en liste:
+        hjælpemiddel_værdi = hjælpemiddel_predicate[0]["values"]["MultiSelectTekst"]
+        
+        # check om der er ansøgt om "Andet" og hent værdien
+        findes_andet_hjælpemiddel = "Andet" in hjælpemiddel_værdi
+        if findes_andet_hjælpemiddel:
+            andet_hjælpemiddel_værdi = hjælpemiddel_predicate[0]["children"][0]["values"].get("Tekst", "")
+
+        # split hjælpemiddel_værdi ved komma og fjern evt. mellemrum
+        if isinstance(hjælpemiddel_værdi, list):
+            # If it's already a list, flatten it and split each item
+            hjælpemiddel_værdi_liste = []
+            for item in hjælpemiddel_værdi:
+                hjælpemiddel_værdi_liste.extend([x.strip() for x in item.split(",")])
+        else:
+            # If it's a string, split it directly
+            hjælpemiddel_værdi_liste = [x.strip() for x in hjælpemiddel_værdi.split(",")]
+        print("hej")
+
+
+            # andet_predicate = filter_by_predicate(
+            #     roots=hjælpemiddel_predicate,
+            #     predicate=lambda x: x["identifier"] == "ElementTextfield"
+            # )
+
+            # if(hjælpemiddel_predicate and len(hjælpemiddel_predicate) > 0):
+            # hjælpemiddel_værdi = 
+
+
+
+
+    print("stop")
 
 
 
