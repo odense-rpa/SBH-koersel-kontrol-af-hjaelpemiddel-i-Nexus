@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sys
 from datetime import datetime
+from kmd_nexus_client.manager import NexusClientManager
 from kmd_nexus_client.tree_helpers import (
     filter_by_predicate,    
 )
@@ -17,21 +18,23 @@ from automation_server_client import (
     Credential,
 )
 
-
+nexus: NexusClientManager
 xflow_client: XFlowClient
 xflow_process_client: ProcessClient
 
 tracker: Tracker
 
 proces_navn = "SBH kørsel - Kontrol af hjælpemiddel i Nexus"
+GODKENDTE_HJÆLPEMIDLER_I_NEXUS = ["Kørestol", "Kørestole", "Gangbuk", "Gangbukke", "Rollator", "Rollatorer", "Gangstol", "Gangstole", "Gangbord", "Gangborde", "Håndstok", "Håndstokke", "Albuestok", "Albuestokke", "Underarmsstok", "Underarmsstokke", "Armhulestok", "Armhulestokke", "Flerpunktsstok", "Flerpunktsstokke", "Stok med hvilesæde", "Stokke med hvilesæde"]
 
 async def populate_queue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
 
+
     xlow_søge_query = {
         "text": "",
         "processTemplateIds": [
-            "743"
+            "753"
         ],
         "startIndex": 0,        
         "createdDateFrom": "01-01-1980",
@@ -42,50 +45,34 @@ async def populate_queue(workqueue: Workqueue):
         query=xlow_søge_query,
         activity_name="RPAIntegration",
     )
-    print("hej")
 
+    i = 1
     for proces in igangværende_processer:
+        # if i == 1:
+        #     i += 1
+        #     continue
 
         blanketter = proces["blanketter"]
 
         samlet_ansøgning = filter_by_predicate(
             roots=blanketter,
-            predicate=lambda x: x["blanketnavn"] == "Christian tester"
+            predicate=lambda x: x["blanketnavn"] == "SBH - Samlet"
+        ) 
+        cpr_nummer_predicate = filter_by_predicate(
+            roots=samlet_ansøgning[0]["elementer"],
+            predicate=lambda x: x["identifier"] in ("Ansøger-AnsøgerSelv", "Ansøger-AnsøgerPåVegneAf")
         )
-        filtreret_ansøgning = xflow_client.traverse_json_for_referable_elements(samlet_ansøgning[0])
-        hjælpemiddel_predicate = filter_by_predicate(
-            roots=filtreret_ansøgning,
-            predicate=lambda x: x["identifier"] == "ElementMultiSelectHjælpemiddel"
-        )
-        # find værdier hjælpemiddel_predicate[0]["values"]["MultiSelectTekst"] og tilføj dem til en liste:
-        hjælpemiddel_værdi = hjælpemiddel_predicate[0]["values"]["MultiSelectTekst"]
-        
-        # check om der er ansøgt om "Andet" og hent værdien
-        findes_andet_hjælpemiddel = "Andet" in hjælpemiddel_værdi
-        if findes_andet_hjælpemiddel:
-            andet_hjælpemiddel_værdi = hjælpemiddel_predicate[0]["children"][0]["values"].get("Tekst", "")
-
-        # split hjælpemiddel_værdi ved komma og fjern evt. mellemrum
-        if isinstance(hjælpemiddel_værdi, list):
-            # If it's already a list, flatten it and split each item
-            hjælpemiddel_værdi_liste = []
-            for item in hjælpemiddel_værdi:
-                hjælpemiddel_værdi_liste.extend([x.strip() for x in item.split(",")])
-        else:
-            # If it's a string, split it directly
-            hjælpemiddel_værdi_liste = [x.strip() for x in hjælpemiddel_værdi.split(",")]
-        print("hej")
-
-
-            # andet_predicate = filter_by_predicate(
-            #     roots=hjælpemiddel_predicate,
-            #     predicate=lambda x: x["identifier"] == "ElementTextfield"
-            # )
-
-            # if(hjælpemiddel_predicate and len(hjælpemiddel_predicate) > 0):
-            # hjælpemiddel_værdi = 
-
-
+        # find cpr-nummer på ansøger:
+        cpr_nummer = cpr_nummer_predicate[0].get("values", {}).get("CprNummer") if cpr_nummer_predicate else None
+        if not cpr_nummer:
+            logger.warning(f"Proces {proces['publicId']} har ikke et gyldigt CPR-nummer. Springes over.")
+            continue
+        # tilføj data til queue:
+        data = {
+            "procesid": proces["publicId"],
+            "cprnummer": cpr_nummer,
+        }
+        workqueue.add_item(data, reference=cpr_nummer)
 
 
     print("stop")
@@ -102,8 +89,114 @@ async def process_workqueue(workqueue: Workqueue):
             data = item.data  # Item data deserialized from json as dict
  
             try:
-                # Process the item here
-                pass
+                # hent borger i nexus via cpr-nummer
+                borger = nexus.borgere.hent_borger(data["cprnummer"])
+                if borger is None:
+                    raise Exception(f"Borger med CPR-nummer {data['cprnummer']} ikke fundet i Nexus.")
+
+                borgers_udlån = nexus.borgere.hent_udlån(borger)
+                # check om GODKENDTE_HJÆLPEMIDLER_I_NEXUS er i borgers_udlån i ["item"]["product"]["categoryName"]:
+                borgers_godkendte_udlån = [udlån for udlån in borgers_udlån if any(hjælpemiddel.lower() in udlån.get("item", {}).get("product", {}).get("categoryName", "").lower() for hjælpemiddel in GODKENDTE_HJÆLPEMIDLER_I_NEXUS)]
+                # Helper function to format date from ISO to dd-mm-yyyy
+                def format_date(date_string):
+                    if not date_string:
+                        return ""
+                    try:
+                        # Parse ISO format (e.g., "2025-08-15T14:00:05") and format to dd-mm-yyyy
+                        date_obj = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
+                        return date_obj.strftime('%d-%m-%Y')
+                    except (ValueError, AttributeError):
+                        return date_string  # Return original if parsing fails
+
+                # lav en liste med borgers_godkendte_udlån hvor hvert item indeholder categoryName, orderedDate og firstDeliveredDate:
+                borgers_godkendte_udlån_info = [{
+                    "ISO navn": udlån.get("item", {}).get("product", {}).get("categoryName", ""),
+                    "Ordredato": format_date(udlån.get("orderedDate", "")),
+                    "Udlånsdato": format_date(udlån.get("firstDeliveredDate", "")),
+                    "Paragraf": udlån.get("grant", {}).get("paragraph", ""),
+                } for udlån in borgers_godkendte_udlån]
+
+                # Convert to formatted text with html tags:
+                if borgers_godkendte_udlån_info:
+                    udlån_text = "Godkendte hjælpemidler fundet i Nexus:<br><br>"
+                    udlån_items = []
+                    for i, udlån in enumerate(borgers_godkendte_udlån_info, 1):
+                        item_text = f"{i}. {udlån['ISO navn']}<br>   Ordredato: {udlån['Ordredato']}<br>   Udlånsdato: {udlån['Udlånsdato']}<br>   Paragraf: {udlån['Paragraf']}<br><br>"
+                        udlån_items.append(item_text)
+                    udlån_text += "".join(udlån_items)
+                else:
+                    udlån_text = "Ingen godkendte hjælpemidler fundet i Nexus."
+
+                # finder borgers "samlet faglig vurdering" skemaer i nexus
+                borger_skemaer = nexus.skemaer.hent_skemareferencer(borger)
+                samlet_faglig_vurdering_referencer = [skema for skema in borger_skemaer if skema.get("Navn") == "Samlet faglig vurdering"]
+        
+                # variable til at samle alle godkendte skemaer
+                godkendte_skemaer = []
+                
+                # kigger alle samlet faglig vurdering skemaer igennem for at se om der er et godkendt hjælpemiddel:
+                for skema in samlet_faglig_vurdering_referencer:
+                    skema_detaljer = nexus.skemaer.hent_skema_fra_reference(skema)
+                    # check om ["items"][0]["value"] fremkommer i GODKENDTE_HJÆLPEMIDLER_I_NEXUS:
+                    if skema_detaljer and "items" in skema_detaljer and len(skema_detaljer["items"]) > 0:
+                        skema_overskrift_værdi = skema_detaljer["items"][0].get("value", "")
+                        # hent introduktion/sammenfatning samt konklusion/afgørelse og sæt godkendte_skema til True
+                        if any(hjælpemiddel.lower() in skema_overskrift_værdi.lower() for hjælpemiddel in GODKENDTE_HJÆLPEMIDLER_I_NEXUS):
+                            introduktion_sammenfatning_værdi = skema_detaljer["items"][1].get("value", "")
+                            konklusion_afgørelse_værdi = skema_detaljer["items"][3].get("value", "")
+                            skema_created_date = skema_detaljer.get("createDate", "")
+                            
+                            # tilføj til listen af godkendte skemaer
+                            godkendte_skemaer.append({
+                                "Oprettet": format_date(skema_created_date),
+                                "Overskrift": skema_overskrift_værdi,
+                                "Introduktion": introduktion_sammenfatning_værdi,
+                                "Konklusion": konklusion_afgørelse_værdi
+                            })
+
+                # format alle godkendte skemaer til tekst
+                if godkendte_skemaer:
+                    skema_text = "Godkendte skemaer fundet i Nexus:\n\n"
+                    for i, skema in enumerate(godkendte_skemaer, 1):
+                        skema_text += f"{i}. Samlet faglig vurdering (Oprettet: {skema['Oprettet']})\n"
+                        skema_text += f"   <b>Overskrift:</b> {skema['Overskrift']}\n"
+                        skema_text += f"   <b>Introduktion/Sammenfatning:</b> {skema['Introduktion']}\n"
+                        skema_text += f"   <b>Konklusion/Afgørelse:</b> {skema['Konklusion']}\n\n"
+                else:
+                    skema_text = "Ingen godkendte skemaer fundet."
+
+                # blanket data, der skal sendes tilbage til xflow:
+                blanket_data = {
+                    "formValues": [
+                        {
+                            "elementIdentifier": "RPASignatur",
+                            "valueIdentifier": "Tekst",
+                            "value": "Behandlet af Tyra (RPA)"      
+                        },
+                        {
+                            "elementIdentifier": "RPABehandletDato",
+                            "valueIdentifier": "Dato",
+                            "value": datetime.today().strftime('%d-%m-%Y')      
+                        },
+                        {
+                            "elementIdentifier": "InformationFraNEXUS-udlån",
+                            "valueIdentifier": "Tekst",
+                            "value": f"{udlån_text}"     
+                        },
+                        {
+                            "elementIdentifier": "InformationFraNEXUS-skema",
+                            "valueIdentifier": "Tekst",
+                            "value": f"{skema_text}"     
+                        }   
+                    ]        
+                }
+
+                xflow_process_client.update_process(data["procesid"], blanket_data)
+                xflow_process_client.advance_process(data["procesid"])
+
+                print("hej")
+
+
             except WorkItemError as e:
                 # A WorkItemError represents a soft error that indicates the item should be passed to manual processing or a business logic fault
                 logger.error(f"Error processing item: {data}. Error: {e}")
@@ -119,6 +212,12 @@ if __name__ == "__main__":
     nexus_credential = Credential.get_credential("KMD Nexus - produktion")
     xflow_credential = Credential.get_credential("Xflow - produktion")
     tracking_credential = Credential.get_credential("Odense SQL Server")
+
+    nexus = NexusClientManager(
+        client_id=nexus_credential.username,
+        client_secret=nexus_credential.password,
+        instance=nexus_credential.data["instance"],
+    )
 
     xflow_client = XFlowClient(
         token=xflow_credential.password,
