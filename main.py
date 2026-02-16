@@ -4,7 +4,7 @@ import sys
 from datetime import datetime
 from kmd_nexus_client.manager import NexusClientManager
 from kmd_nexus_client.tree_helpers import (
-    filter_by_predicate,    
+    filter_by_predicate,
 )
 
 
@@ -25,41 +25,41 @@ xflow_process_client: ProcessClient
 tracker: Tracker
 
 proces_navn = "SBH kørsel - Kontrol af hjælpemiddel i Nexus"
-GODKENDTE_HJÆLPEMIDLER_I_NEXUS = ["Kørestol",
-                                   "Kørestole", 
-                                   "Gangbuk",
-                                   "Gangbukke", 
-                                   "Rollator", 
-                                   "Rollatorer", 
-                                   "Gangstol", 
-                                   "Gangstole", 
-                                   "Gangbord", 
-                                   "Gangborde", 
-                                   "Håndstok", 
-                                   "Håndstokke", 
-                                   "Albuestok", 
-                                   "Albuestokke", 
-                                   "Underarmsstok", 
-                                   "Underarmsstokke", 
-                                   "Armhulestok", 
-                                   "Armhulestokke", 
-                                   "Flerpunktsstok", 
-                                   "Flerpunktsstokke", 
-                                   "Stok med hvilesæde", 
-                                   "Stokke med hvilesæde"]
+GODKENDTE_HJÆLPEMIDLER_I_NEXUS = [
+    "Kørestol",
+    "Kørestole",
+    "Gangbuk",
+    "Gangbukke",
+    "Rollator",
+    "Rollatorer",
+    "Gangstol",
+    "Gangstole",
+    "Gangbord",
+    "Gangborde",
+    "Håndstok",
+    "Håndstokke",
+    "Albuestok",
+    "Albuestokke",
+    "Underarmsstok",
+    "Underarmsstokke",
+    "Armhulestok",
+    "Armhulestokke",
+    "Flerpunktsstok",
+    "Flerpunktsstokke",
+    "Stok med hvilesæde",
+    "Stokke med hvilesæde",
+]
+
 
 async def populate_queue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
 
-
     xlow_søge_query = {
         "text": "",
-        "processTemplateIds": [
-            "753"
-        ],
-        "startIndex": 0,        
+        "processTemplateIds": ["753"],
+        "startIndex": 0,
         "createdDateFrom": "01-01-1980",
-        "createdDateTo":  datetime.today().strftime('%d-%m-%Y'),
+        "createdDateTo": datetime.today().strftime("%d-%m-%Y"),
     }
 
     igangværende_processer = xflow_process_client.search_processes_by_current_activity(
@@ -71,17 +71,24 @@ async def populate_queue(workqueue: Workqueue):
         blanketter = proces["blanketter"]
 
         samlet_ansøgning = filter_by_predicate(
-            roots=blanketter,
-            predicate=lambda x: x["blanketnavn"] == "SBH - Samlet"
-        ) 
+            roots=blanketter, predicate=lambda x: x["blanketnavn"] == "SBH - Samlet"
+        )
         cpr_nummer_predicate = filter_by_predicate(
             roots=samlet_ansøgning[0]["elementer"],
-            predicate=lambda x: x["identifier"] in ("Ansøger-AnsøgerSelv", "Ansøger-AnsøgerPåVegneAf")
+            predicate=lambda x: (
+                x["identifier"] in ("Ansøger-AnsøgerSelv", "Ansøger-AnsøgerPåVegneAf")
+            ),
         )
         # find cpr-nummer på ansøger:
-        cpr_nummer = cpr_nummer_predicate[0].get("values", {}).get("CprNummer") if cpr_nummer_predicate else None
+        cpr_nummer = (
+            cpr_nummer_predicate[0].get("values", {}).get("CprNummer")
+            if cpr_nummer_predicate
+            else None
+        )
         if not cpr_nummer:
-            logger.warning(f"Proces {proces['publicId']} har ikke et gyldigt CPR-nummer. Springes over.")
+            logger.warning(
+                f"Proces {proces['publicId']} har ikke et gyldigt CPR-nummer. Springes over."
+            )
             continue
         # tilføj data til queue:
         data = {
@@ -90,9 +97,7 @@ async def populate_queue(workqueue: Workqueue):
         }
         workqueue.add_item(data, reference=cpr_nummer)
 
-
     print("stop")
-
 
 
 async def process_workqueue(workqueue: Workqueue):
@@ -103,34 +108,55 @@ async def process_workqueue(workqueue: Workqueue):
     for item in workqueue:
         with item:
             data = item.data  # Item data deserialized from json as dict
- 
+
             try:
                 # hent borger i nexus via cpr-nummer
                 borger = nexus.borgere.hent_borger(data["cprnummer"])
                 if borger is None:
-                    raise Exception(f"Borger med CPR-nummer {data['cprnummer']} ikke fundet i Nexus.")
+                    raise Exception(
+                        f"Borger med CPR-nummer {data['cprnummer']} ikke fundet i Nexus."
+                    )
 
                 borgers_udlån = nexus.borgere.hent_udlån(borger)
                 # check om GODKENDTE_HJÆLPEMIDLER_I_NEXUS er i borgers_udlån i ["item"]["product"]["categoryName"]:
-                borgers_godkendte_udlån = [udlån for udlån in borgers_udlån if any(hjælpemiddel.lower() in udlån.get("item", {}).get("product", {}).get("categoryName", "").lower() for hjælpemiddel in GODKENDTE_HJÆLPEMIDLER_I_NEXUS)]
+                borgers_godkendte_udlån = [
+                    udlån
+                    for udlån in borgers_udlån
+                    if any(
+                        hjælpemiddel.lower()
+                        in udlån.get("item", {})
+                        .get("product", {})
+                        .get("categoryName", "")
+                        .lower()
+                        for hjælpemiddel in GODKENDTE_HJÆLPEMIDLER_I_NEXUS
+                    )
+                ]
+
                 # Helper function to format date from ISO to dd-mm-yyyy
                 def format_date(date_string):
                     if not date_string:
                         return ""
                     try:
                         # Parse ISO format (e.g., "2025-08-15T14:00:05") and format to dd-mm-yyyy
-                        date_obj = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
-                        return date_obj.strftime('%d-%m-%Y')
+                        date_obj = datetime.fromisoformat(
+                            date_string.replace("Z", "+00:00")
+                        )
+                        return date_obj.strftime("%d-%m-%Y")
                     except (ValueError, AttributeError):
                         return date_string  # Return original if parsing fails
 
                 # lav en liste med borgers_godkendte_udlån hvor hvert item indeholder categoryName, orderedDate og firstDeliveredDate:
-                borgers_godkendte_udlån_info = [{
-                    "ISO navn": udlån.get("item", {}).get("product", {}).get("categoryName", ""),
-                    "Ordredato": format_date(udlån.get("orderedDate", "")),
-                    "Udlånsdato": format_date(udlån.get("firstDeliveredDate", "")),
-                    "Paragraf": udlån.get("grant", {}).get("paragraph", ""),
-                } for udlån in borgers_godkendte_udlån]
+                borgers_godkendte_udlån_info = [
+                    {
+                        "ISO navn": udlån.get("item", {})
+                        .get("product", {})
+                        .get("categoryName", ""),
+                        "Ordredato": format_date(udlån.get("orderedDate", "")),
+                        "Udlånsdato": format_date(udlån.get("firstDeliveredDate", "")),
+                        "Paragraf": udlån.get("grant", {}).get("paragraph", ""),
+                    }
+                    for udlån in borgers_godkendte_udlån
+                ]
 
                 # Convert to formatted text with html tags:
                 if borgers_godkendte_udlån_info:
@@ -145,30 +171,49 @@ async def process_workqueue(workqueue: Workqueue):
 
                 # finder borgers "samlet faglig vurdering" skemaer i nexus
                 borger_skemaer = nexus.skemaer.hent_skemareferencer(borger)
-                samlet_faglig_vurdering_referencer = [skema for skema in borger_skemaer if skema.get("Navn") == "Samlet faglig vurdering"]
-        
+                samlet_faglig_vurdering_referencer = [
+                    skema
+                    for skema in borger_skemaer
+                    if skema.get("Navn") == "Samlet faglig vurdering"
+                ]
+
                 # variable til at samle alle godkendte skemaer
                 godkendte_skemaer = []
-                
+
                 # kigger alle samlet faglig vurdering skemaer igennem for at se om der er et godkendt hjælpemiddel:
                 for skema in samlet_faglig_vurdering_referencer:
                     skema_detaljer = nexus.skemaer.hent_skema_fra_reference(skema)
                     # check om ["items"][0]["value"] fremkommer i GODKENDTE_HJÆLPEMIDLER_I_NEXUS:
-                    if skema_detaljer and "items" in skema_detaljer and len(skema_detaljer["items"]) > 0:
-                        skema_overskrift_værdi = skema_detaljer["items"][0].get("value", "")
+                    if (
+                        skema_detaljer
+                        and "items" in skema_detaljer
+                        and len(skema_detaljer["items"]) > 0
+                    ):
+                        skema_overskrift_værdi = skema_detaljer["items"][0].get(
+                            "value", ""
+                        )
                         # hent introduktion/sammenfatning samt konklusion/afgørelse og sæt godkendte_skema til True
-                        if any(hjælpemiddel.lower() in skema_overskrift_værdi.lower() for hjælpemiddel in GODKENDTE_HJÆLPEMIDLER_I_NEXUS):
-                            introduktion_sammenfatning_værdi = skema_detaljer["items"][1].get("value", "")
-                            konklusion_afgørelse_værdi = skema_detaljer["items"][3].get("value", "")
+                        if any(
+                            hjælpemiddel.lower() in skema_overskrift_værdi.lower()
+                            for hjælpemiddel in GODKENDTE_HJÆLPEMIDLER_I_NEXUS
+                        ):
+                            introduktion_sammenfatning_værdi = skema_detaljer["items"][
+                                1
+                            ].get("value", "")
+                            konklusion_afgørelse_værdi = skema_detaljer["items"][3].get(
+                                "value", ""
+                            )
                             skema_created_date = skema_detaljer.get("createDate", "")
-                            
+
                             # tilføj til listen af godkendte skemaer
-                            godkendte_skemaer.append({
-                                "Oprettet": format_date(skema_created_date),
-                                "Overskrift": skema_overskrift_værdi,
-                                "Introduktion": introduktion_sammenfatning_værdi,
-                                "Konklusion": konklusion_afgørelse_værdi
-                            })
+                            godkendte_skemaer.append(
+                                {
+                                    "Oprettet": format_date(skema_created_date),
+                                    "Overskrift": skema_overskrift_værdi,
+                                    "Introduktion": introduktion_sammenfatning_værdi,
+                                    "Konklusion": konklusion_afgørelse_værdi,
+                                }
+                            )
 
                 # format alle godkendte skemaer til tekst
                 if godkendte_skemaer:
@@ -177,7 +222,9 @@ async def process_workqueue(workqueue: Workqueue):
                         skema_text += f"{i}. Samlet faglig vurdering (Oprettet: {skema['Oprettet']})\n"
                         skema_text += f"   <b>Overskrift:</b> {skema['Overskrift']}\n"
                         skema_text += f"   <b>Introduktion/Sammenfatning:</b> {skema['Introduktion']}\n"
-                        skema_text += f"   <b>Konklusion/Afgørelse:</b> {skema['Konklusion']}\n\n"
+                        skema_text += (
+                            f"   <b>Konklusion/Afgørelse:</b> {skema['Konklusion']}\n\n"
+                        )
                 else:
                     skema_text = "Ingen godkendte skemaer fundet."
 
@@ -187,24 +234,24 @@ async def process_workqueue(workqueue: Workqueue):
                         {
                             "elementIdentifier": "RPASignatur",
                             "valueIdentifier": "Tekst",
-                            "value": "Behandlet af Tyra (RPA)"      
+                            "value": "Behandlet af Tyra (RPA)",
                         },
                         {
                             "elementIdentifier": "RPABehandletDato",
                             "valueIdentifier": "Dato",
-                            "value": datetime.today().strftime('%d-%m-%Y')      
+                            "value": datetime.today().strftime("%d-%m-%Y"),
                         },
                         {
                             "elementIdentifier": "InformationFraNEXUS-udlån",
                             "valueIdentifier": "Tekst",
-                            "value": f"{udlån_text}"     
+                            "value": f"{udlån_text}",
                         },
                         {
                             "elementIdentifier": "InformationFraNEXUS-skema",
                             "valueIdentifier": "Tekst",
-                            "value": f"{skema_text}"     
-                        }   
-                    ]        
+                            "value": f"{skema_text}",
+                        },
+                    ]
                 }
 
                 xflow_process_client.update_process(data["procesid"], blanket_data)
@@ -239,8 +286,7 @@ if __name__ == "__main__":
     xflow_process_client = ProcessClient(xflow_client)
 
     tracker = Tracker(
-        username=tracking_credential.username,
-        password=tracking_credential.password
+        username=tracking_credential.username, password=tracking_credential.password
     )
 
     # Queue management
