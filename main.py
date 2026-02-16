@@ -6,10 +6,9 @@ from kmd_nexus_client.manager import NexusClientManager
 from kmd_nexus_client.tree_helpers import (
     filter_by_predicate,
 )
-
-
+from process.hjælpemidler import GODKENDTE_HJÆLPEMIDLER_I_NEXUS
+from process.formatér_dato import format_date
 from odk_tools.tracking import Tracker
-
 from xflow_client import XFlowClient, ProcessClient
 from automation_server_client import (
     AutomationServer,
@@ -25,30 +24,7 @@ xflow_process_client: ProcessClient
 tracker: Tracker
 
 proces_navn = "SBH kørsel - Kontrol af hjælpemiddel i Nexus"
-GODKENDTE_HJÆLPEMIDLER_I_NEXUS = [
-    "Kørestol",
-    "Kørestole",
-    "Gangbuk",
-    "Gangbukke",
-    "Rollator",
-    "Rollatorer",
-    "Gangstol",
-    "Gangstole",
-    "Gangbord",
-    "Gangborde",
-    "Håndstok",
-    "Håndstokke",
-    "Albuestok",
-    "Albuestokke",
-    "Underarmsstok",
-    "Underarmsstokke",
-    "Armhulestok",
-    "Armhulestokke",
-    "Flerpunktsstok",
-    "Flerpunktsstokke",
-    "Stok med hvilesæde",
-    "Stokke med hvilesæde",
-]
+
 
 
 async def populate_queue(workqueue: Workqueue):
@@ -131,19 +107,6 @@ async def process_workqueue(workqueue: Workqueue):
                         for hjælpemiddel in GODKENDTE_HJÆLPEMIDLER_I_NEXUS
                     )
                 ]
-
-                # Helper function to format date from ISO to dd-mm-yyyy
-                def format_date(date_string):
-                    if not date_string:
-                        return ""
-                    try:
-                        # Parse ISO format (e.g., "2025-08-15T14:00:05") and format to dd-mm-yyyy
-                        date_obj = datetime.fromisoformat(
-                            date_string.replace("Z", "+00:00")
-                        )
-                        return date_obj.strftime("%d-%m-%Y")
-                    except (ValueError, AttributeError):
-                        return date_string  # Return original if parsing fails
 
                 # lav en liste med borgers_godkendte_udlån hvor hvert item indeholder categoryName, orderedDate og firstDeliveredDate:
                 borgers_godkendte_udlån_info = [
