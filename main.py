@@ -25,7 +25,28 @@ xflow_process_client: ProcessClient
 tracker: Tracker
 
 proces_navn = "SBH kørsel - Kontrol af hjælpemiddel i Nexus"
-GODKENDTE_HJÆLPEMIDLER_I_NEXUS = ["Kørestol", "Kørestole", "Gangbuk", "Gangbukke", "Rollator", "Rollatorer", "Gangstol", "Gangstole", "Gangbord", "Gangborde", "Håndstok", "Håndstokke", "Albuestok", "Albuestokke", "Underarmsstok", "Underarmsstokke", "Armhulestok", "Armhulestokke", "Flerpunktsstok", "Flerpunktsstokke", "Stok med hvilesæde", "Stokke med hvilesæde"]
+GODKENDTE_HJÆLPEMIDLER_I_NEXUS = ["Kørestol",
+                                   "Kørestole", 
+                                   "Gangbuk",
+                                   "Gangbukke", 
+                                   "Rollator", 
+                                   "Rollatorer", 
+                                   "Gangstol", 
+                                   "Gangstole", 
+                                   "Gangbord", 
+                                   "Gangborde", 
+                                   "Håndstok", 
+                                   "Håndstokke", 
+                                   "Albuestok", 
+                                   "Albuestokke", 
+                                   "Underarmsstok", 
+                                   "Underarmsstokke", 
+                                   "Armhulestok", 
+                                   "Armhulestokke", 
+                                   "Flerpunktsstok", 
+                                   "Flerpunktsstokke", 
+                                   "Stok med hvilesæde", 
+                                   "Stokke med hvilesæde"]
 
 async def populate_queue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
@@ -46,12 +67,7 @@ async def populate_queue(workqueue: Workqueue):
         activity_name="RPAIntegration",
     )
 
-    i = 1
     for proces in igangværende_processer:
-        # if i == 1:
-        #     i += 1
-        #     continue
-
         blanketter = proces["blanketter"]
 
         samlet_ansøgning = filter_by_predicate(
@@ -194,10 +210,7 @@ async def process_workqueue(workqueue: Workqueue):
                 xflow_process_client.update_process(data["procesid"], blanket_data)
                 xflow_process_client.advance_process(data["procesid"])
 
-                print("hej")
-
-
-            except WorkItemError as e:
+            except Exception as e:
                 # A WorkItemError represents a soft error that indicates the item should be passed to manual processing or a business logic fault
                 logger.error(f"Error processing item: {data}. Error: {e}")
                 item.fail(str(e))
