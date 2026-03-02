@@ -73,9 +73,6 @@ async def populate_queue(workqueue: Workqueue):
         }
         workqueue.add_item(data, reference=cpr_nummer)
 
-    print("stop")
-
-
 async def process_workqueue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
 
@@ -89,9 +86,35 @@ async def process_workqueue(workqueue: Workqueue):
                 # hent borger i nexus via cpr-nummer
                 borger = nexus.borgere.hent_borger(data["cprnummer"])
                 if borger is None:
-                    raise Exception(
-                        f"Borger med CPR-nummer {data['cprnummer']} ikke fundet i Nexus."
-                    )
+                    # borger ikke fundet i nexus - skal bare returnere en blanket med "BORGER IKKE FUNDET I NEXUS" i de relevante felter og så avancere processen:
+                    blanket_data = {
+                        "formValues": [
+                            {
+                                "elementIdentifier": "RPASignatur",
+                                "valueIdentifier": "Tekst",
+                                "value": "Behandlet af Tyra (RPA)",
+                            },
+                            {
+                                "elementIdentifier": "RPABehandletDato",
+                                "valueIdentifier": "Dato",
+                                "value": datetime.today().strftime("%d-%m-%Y"),
+                            },
+                            {
+                                "elementIdentifier": "InformationFraNEXUS-udlån",
+                                "valueIdentifier": "Tekst",
+                                "value": "BORGER IKKE FUNDET I NEXUS",
+                            },
+                            {
+                                "elementIdentifier": "InformationFraNEXUS-skema",
+                                "valueIdentifier": "Tekst",
+                                "value": "BORGER IKKE FUNDET I NEXUS",
+                            },
+                        ]
+                    }
+
+                    xflow_process_client.update_process(data["procesid"], blanket_data)
+                    xflow_process_client.advance_process(data["procesid"])
+                    continue
 
                 borgers_udlån = nexus.borgere.hent_udlån(borger)
                 # check om GODKENDTE_HJÆLPEMIDLER_I_NEXUS er i borgers_udlån i ["item"]["product"]["categoryName"]:
