@@ -8,6 +8,7 @@ from kmd_nexus_client.tree_helpers import (
 )
 from process.hjælpemidler import GODKENDTE_HJÆLPEMIDLER_I_NEXUS
 from process.formatér_dato import format_date
+from process.xflow import afsend_til_xflow
 from odk_tools.tracking import Tracker
 from xflow_client import XFlowClient, ProcessClient
 from automation_server_client import (
@@ -87,33 +88,12 @@ async def process_workqueue(workqueue: Workqueue):
                 borger = nexus.borgere.hent_borger(data["cprnummer"])
                 if borger is None:
                     # borger ikke fundet i nexus - skal bare returnere en blanket med "BORGER IKKE FUNDET I NEXUS" i de relevante felter og så avancere processen:
-                    blanket_data = {
-                        "formValues": [
-                            {
-                                "elementIdentifier": "RPASignatur",
-                                "valueIdentifier": "Tekst",
-                                "value": "Behandlet af Tyra (RPA)",
-                            },
-                            {
-                                "elementIdentifier": "RPABehandletDato",
-                                "valueIdentifier": "Dato",
-                                "value": datetime.today().strftime("%d-%m-%Y"),
-                            },
-                            {
-                                "elementIdentifier": "InformationFraNEXUS-udlån",
-                                "valueIdentifier": "Tekst",
-                                "value": "BORGER IKKE FUNDET I NEXUS",
-                            },
-                            {
-                                "elementIdentifier": "InformationFraNEXUS-skema",
-                                "valueIdentifier": "Tekst",
-                                "value": "BORGER IKKE FUNDET I NEXUS",
-                            },
-                        ]
-                    }
-
-                    xflow_process_client.update_process(data["procesid"], blanket_data)
-                    xflow_process_client.advance_process(data["procesid"])
+                    afsend_til_xflow(
+                        xflow_process_client,
+                        data["procesid"],
+                        "BORGER IKKE FUNDET I NEXUS",
+                        "BORGER IKKE FUNDET I NEXUS",
+                    )
                     continue
 
                 borgers_udlån = nexus.borgere.hent_udlån(borger)
@@ -215,33 +195,7 @@ async def process_workqueue(workqueue: Workqueue):
                     skema_text = "Ingen godkendte skemaer fundet."
 
                 # blanket data, der skal sendes tilbage til xflow:
-                blanket_data = {
-                    "formValues": [
-                        {
-                            "elementIdentifier": "RPASignatur",
-                            "valueIdentifier": "Tekst",
-                            "value": "Behandlet af Tyra (RPA)",
-                        },
-                        {
-                            "elementIdentifier": "RPABehandletDato",
-                            "valueIdentifier": "Dato",
-                            "value": datetime.today().strftime("%d-%m-%Y"),
-                        },
-                        {
-                            "elementIdentifier": "InformationFraNEXUS-udlån",
-                            "valueIdentifier": "Tekst",
-                            "value": f"{udlån_text}",
-                        },
-                        {
-                            "elementIdentifier": "InformationFraNEXUS-skema",
-                            "valueIdentifier": "Tekst",
-                            "value": f"{skema_text}",
-                        },
-                    ]
-                }
-
-                xflow_process_client.update_process(data["procesid"], blanket_data)
-                xflow_process_client.advance_process(data["procesid"])
+                afsend_til_xflow(xflow_process_client, data["procesid"], udlån_text, skema_text)
 
             except Exception as e:
                 # A WorkItemError represents a soft error that indicates the item should be passed to manual processing or a business logic fault
