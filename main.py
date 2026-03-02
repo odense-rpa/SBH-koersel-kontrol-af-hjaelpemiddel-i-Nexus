@@ -26,7 +26,6 @@ tracker: Tracker
 proces_navn = "SBH kørsel - Kontrol af hjælpemiddel i Nexus"
 
 
-
 async def populate_queue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
 
@@ -72,6 +71,7 @@ async def populate_queue(workqueue: Workqueue):
             "cprnummer": cpr_nummer,
         }
         workqueue.add_item(data, reference=cpr_nummer)
+
 
 async def process_workqueue(workqueue: Workqueue):
     logger = logging.getLogger(__name__)
