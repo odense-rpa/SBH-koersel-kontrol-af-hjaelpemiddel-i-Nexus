@@ -196,6 +196,9 @@ async def process_workqueue(workqueue: Workqueue):
 
                 # blanket data, der skal sendes tilbage til xflow:
                 afsend_til_xflow(xflow_process_client, data["procesid"], udlån_text, skema_text)
+                
+                # Afregn
+                tracker.track_task(process_name=proces_navn)
 
             except Exception as e:
                 # A WorkItemError represents a soft error that indicates the item should be passed to manual processing or a business logic fault
