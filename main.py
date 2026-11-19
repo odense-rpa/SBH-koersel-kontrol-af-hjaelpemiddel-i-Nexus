@@ -158,6 +158,9 @@ async def process_workqueue(workqueue: Workqueue):
                         skema_overskrift_værdi = skema_detaljer["items"][0].get(
                             "value", ""
                         )
+                        # spring skemaet over, hvis overskriften er null
+                        if skema_overskrift_værdi is None:
+                            continue
                         # hent introduktion/sammenfatning samt konklusion/afgørelse og sæt godkendte_skema til True
                         if any(
                             hjælpemiddel.lower() in skema_overskrift_værdi.lower()
